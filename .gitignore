@@ -1,0 +1,13 @@
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# OS generated files
+Thumbs.db
+.DS_Store
+
+# FFmpeg binaries (if downloaded locally into package)
+**/Binaries/ffmpeg.exe
+**/Binaries/ffprobe.exe
+**/Binaries/ffmpeg.zip
