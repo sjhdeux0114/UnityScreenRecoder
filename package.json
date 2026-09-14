@@ -16,9 +16,12 @@
     "upm"
   ],
   "author": {
-    "name": "HighQualityRecorder",
-    "email": "support@example.com",
-    "url": "https://github.com"
+    "name": "sjhdeux0114",
+    "url": "https://github.com/sjhdeux0114"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sjhdeux0114/UnityScreenRecoder.git"
   },
   "dependencies": {}
 }
