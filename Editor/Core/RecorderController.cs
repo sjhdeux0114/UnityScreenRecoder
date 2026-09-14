@@ -114,8 +114,8 @@ namespace HighQualityRecorder.Editor
                 Time.captureFramerate = fps;
             }
 
-            // 4. Start Frame Capture Engine
-            _captureEngine = new FrameCaptureEngine(_encoderProcess, width, height, fps);
+            // 4. Start Frame Capture Engine with precise timing synchronization
+            _captureEngine = new FrameCaptureEngine(_encoderProcess, width, height, fps, config.timingMode);
             _captureEngine.Start();
 
             _recordStartTime = EditorApplication.timeSinceStartup;

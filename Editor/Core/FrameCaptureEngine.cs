@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
+using Debug = UnityEngine.Debug;
 
 namespace HighQualityRecorder.Editor
 {
@@ -17,6 +19,12 @@ namespace HighQualityRecorder.Editor
         private readonly int _width;
         private readonly int _height;
         private readonly int _targetFps;
+        private readonly CaptureTimingMode _timingMode;
+        private readonly double _frameInterval;
+
+        private readonly Stopwatch _stopwatch = new Stopwatch();
+        private double _nextCaptureTime = 0;
+        private int _lastCapturedFrameCount = -1;
 
         private RenderTexture _captureRt;
         private Thread _workerThread;
@@ -35,12 +43,14 @@ namespace HighQualityRecorder.Editor
         public int DroppedFrames => _droppedFrames;
         public bool IsCapturing => _isCapturing;
 
-        public FrameCaptureEngine(FFmpegEncoderProcess encoder, int width, int height, int targetFps)
+        public FrameCaptureEngine(FFmpegEncoderProcess encoder, int width, int height, int targetFps, CaptureTimingMode timingMode)
         {
             _encoder = encoder;
             _width = width;
             _height = height;
             _targetFps = targetFps;
+            _timingMode = timingMode;
+            _frameInterval = 1.0 / Mathf.Max(1, _targetFps);
             _frameByteSize = _width * _height * 4; // RGBA32: 4 bytes per pixel
 
             // Pre-allocate buffer pool to eliminate GC allocations during recording
@@ -54,6 +64,10 @@ namespace HighQualityRecorder.Editor
         {
             if (_isCapturing) return;
             _isCapturing = true;
+
+            _stopwatch.Restart();
+            _nextCaptureTime = 0;
+            _lastCapturedFrameCount = -1;
 
             // Create temporary capture render target
             _captureRt = new RenderTexture(_width, _height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB)
@@ -81,7 +95,7 @@ namespace HighQualityRecorder.Editor
         private void OnPostRenderBuiltIn(Camera cam)
         {
             if (!_isCapturing) return;
-            if (ShouldCaptureCamera(cam))
+            if (ShouldCaptureCamera(cam) && CheckFrameRateTiming())
             {
                 CaptureFromActiveTexture(cam.activeTexture);
             }
@@ -90,10 +104,39 @@ namespace HighQualityRecorder.Editor
         private void OnEndCameraRenderingSRP(ScriptableRenderContext context, Camera cam)
         {
             if (!_isCapturing) return;
-            if (ShouldCaptureCamera(cam))
+            if (ShouldCaptureCamera(cam) && CheckFrameRateTiming())
             {
                 CaptureFromActiveTexture(cam.activeTexture);
             }
+        }
+
+        private bool CheckFrameRateTiming()
+        {
+            if (_timingMode == CaptureTimingMode.ConstantFramerate)
+            {
+                // In Constant Framerate mode: capture exactly once per Unity engine frame
+                if (Time.frameCount == _lastCapturedFrameCount) return false;
+                _lastCapturedFrameCount = Time.frameCount;
+                return true;
+            }
+
+            // In Realtime mode: throttle strictly according to targetFps interval (e.g. 1/30s, 1/60s, 1/120s)
+            double currentTime = _stopwatch.Elapsed.TotalSeconds;
+            if (currentTime < _nextCaptureTime)
+            {
+                // Skip frame: game is running faster than target video framerate!
+                return false;
+            }
+
+            _nextCaptureTime += _frameInterval;
+
+            // Prevent runaway catch-up if the engine had a momentary freeze
+            if (currentTime - _nextCaptureTime > _frameInterval * 2)
+            {
+                _nextCaptureTime = currentTime + _frameInterval;
+            }
+
+            return true;
         }
 
         private bool ShouldCaptureCamera(Camera cam)
