@@ -30,7 +30,7 @@
 - **원클릭 FFmpeg 자동 다운로더 내장**:
   - 복잡한 FFmpeg 설치 과정 없이 에디터 창의 버튼 한 번으로 자동 다운로드 및 구성
 - **간편한 에디터 인터페이스 & 단축키**:
-  - 언제 어디서나 **`F9`** 키로 즉시 녹화 시작/정지 가능
+  - 언제 어디서나 **`Ctrl + F9`** 키로 즉시 녹화 시작/정지 가능
   - 상단 메뉴 `Tools > High Quality Screen Recorder` (`Ctrl + Shift + F9`)
 
 ---
@@ -74,8 +74,8 @@
      - `Realtime`: 실시간 플레이 캡처 (일반 게임플레이 테스트)
      - `ConstantFramerate`: 렉 없이 완벽한 60fps 시네마틱 영상 추출 (쇼케이스/트레일러)
 4. **녹화 시작 및 정지**:
-   - 초록색 **[● START RECORDING (F9)]** 버튼을 누르거나 키보드 **`F9`**를 누릅니다.
-   - 녹화를 마치려면 **`F9`**를 다시 누릅니다.
+   - 초록색 **[● START RECORDING (Ctrl+F9)]** 버튼을 누르거나 키보드 **`Ctrl + F9`**를 누릅니다.
+   - 녹화를 마치려면 **`Ctrl + F9`**를 다시 누릅니다.
    - 녹화 완료 즉시 **[Open Folder]** 또는 **[Play Last Video]** 버튼으로 영상을 바로 확인하실 수 있습니다.
 
 ---
@@ -84,7 +84,7 @@
 
 | 단축키 | 기능 |
 | :--- | :--- |
-| **`F9`** | 녹화 시작 / 정지 토글 (Start / Stop Recording) |
+| **`Ctrl + F9`** | 녹화 시작 / 정지 토글 (Start / Stop Recording) |
 | **`Ctrl + Shift + F9`** | 녹화 설정 창 열기 (Open Recorder Window) |
 
 ---

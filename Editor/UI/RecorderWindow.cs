@@ -247,7 +247,7 @@ namespace HighQualityRecorder.Editor
 
                 Color oldColor = GUI.backgroundColor;
                 GUI.backgroundColor = new Color(1f, 0.4f, 0.4f);
-                if (GUILayout.Button("■ STOP RECORDING (F9)", GUILayout.Height(40)))
+                if (GUILayout.Button("■ STOP RECORDING (Ctrl+F9)", GUILayout.Height(40)))
                 {
                     RecorderController.StopRecording();
                 }
@@ -265,7 +265,7 @@ namespace HighQualityRecorder.Editor
                 // Idle state
                 Color oldColor = GUI.backgroundColor;
                 GUI.backgroundColor = new Color(0.3f, 0.85f, 0.3f);
-                if (GUILayout.Button("● START RECORDING (F9)", GUILayout.Height(40)))
+                if (GUILayout.Button("● START RECORDING (Ctrl+F9)", GUILayout.Height(40)))
                 {
                     SaveConfig();
                     RecorderController.StartRecording(_config);

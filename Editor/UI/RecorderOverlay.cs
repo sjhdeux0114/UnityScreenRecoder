@@ -24,7 +24,7 @@ namespace HighQualityRecorder.Editor
             }
         }
 
-        [MenuItem("Tools/Toggle Recording _F9", false, 101)]
+        [MenuItem("Tools/Toggle Recording %F9", false, 101)]
         private static void ToggleRecordingHotkey()
         {
             if (RecorderController.IsRecording)
