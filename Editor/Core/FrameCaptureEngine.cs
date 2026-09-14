@@ -216,17 +216,13 @@ namespace HighQualityRecorder.Editor
             var token = _cts.Token;
             try
             {
-                while (!token.IsCancellationRequested || _frameQueue.Count > 0)
+                if (_timingMode == CaptureTimingMode.Realtime)
                 {
-                    if (_frameQueue.TryTake(out byte[] frame, 50, token))
-                    {
-                        if (frame != null)
-                        {
-                            _encoder.WriteFrame(frame, 0, frame.Length);
-                            // Return buffer to pool for reuse
-                            _bufferPool.Add(frame);
-                        }
-                    }
+                    RunRealtimeWorker(token);
+                }
+                else
+                {
+                    RunConstantFramerateWorker(token);
                 }
             }
             catch (OperationCanceledException)
@@ -236,6 +232,89 @@ namespace HighQualityRecorder.Editor
             catch (Exception ex)
             {
                 Debug.LogError($"[HighQualityRecorder] Exception in worker loop: {ex.Message}");
+            }
+        }
+
+        private void RunRealtimeWorker(CancellationToken token)
+        {
+            byte[] activeFrame = null;
+            var stopwatch = Stopwatch.StartNew();
+            long frameIndex = 0;
+            double targetIntervalSec = 1.0 / Mathf.Max(1, _targetFps);
+
+            // Wait until the first frame is captured by Unity
+            while (!token.IsCancellationRequested && activeFrame == null)
+            {
+                if (_frameQueue.TryTake(out byte[] firstFrame, 50, token))
+                {
+                    activeFrame = new byte[_frameByteSize];
+                    Buffer.BlockCopy(firstFrame, 0, activeFrame, 0, _frameByteSize);
+                    _bufferPool.Add(firstFrame);
+                    break;
+                }
+            }
+
+            if (activeFrame == null) return;
+
+            stopwatch.Restart();
+
+            while (!token.IsCancellationRequested)
+            {
+                double scheduledTimeSec = frameIndex * targetIntervalSec;
+                double elapsedSec = stopwatch.Elapsed.TotalSeconds;
+
+                if (elapsedSec < scheduledTimeSec)
+                {
+                    double waitMs = (scheduledTimeSec - elapsedSec) * 1000.0;
+                    if (waitMs > 2.0)
+                    {
+                        Thread.Sleep((int)(waitMs - 1.0));
+                    }
+                    else
+                    {
+                        Thread.SpinWait(20);
+                    }
+                    continue;
+                }
+
+                // Pick up the latest available frame from the queue
+                while (_frameQueue.TryTake(out byte[] newFrame))
+                {
+                    Buffer.BlockCopy(newFrame, 0, activeFrame, 0, _frameByteSize);
+                    _bufferPool.Add(newFrame);
+                }
+
+                // Feed frame to FFmpeg (even if new frame didn't arrive, activeFrame will duplicate to maintain exact playback speed)
+                _encoder.WriteFrame(activeFrame, 0, _frameByteSize);
+                frameIndex++;
+                _recordedFrames = (int)frameIndex;
+            }
+
+            // Flush remaining queue at exit
+            while (_frameQueue.TryTake(out byte[] remainingFrame))
+            {
+                Buffer.BlockCopy(remainingFrame, 0, activeFrame, 0, _frameByteSize);
+                _bufferPool.Add(remainingFrame);
+            }
+            if (activeFrame != null)
+            {
+                _encoder.WriteFrame(activeFrame, 0, _frameByteSize);
+            }
+        }
+
+        private void RunConstantFramerateWorker(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested || _frameQueue.Count > 0)
+            {
+                if (_frameQueue.TryTake(out byte[] frame, 50, token))
+                {
+                    if (frame != null)
+                    {
+                        _encoder.WriteFrame(frame, 0, frame.Length);
+                        _bufferPool.Add(frame);
+                        Interlocked.Increment(ref _recordedFrames);
+                    }
+                }
             }
         }
 
