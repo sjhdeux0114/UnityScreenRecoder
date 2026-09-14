@@ -93,8 +93,23 @@ namespace HighQualityRecorder.Editor
             // Quality / Bitrate settings
             ApplyQualitySettings(sb, config, encoder);
 
-            // Vertical flip filter (Unity texture coordinate 0,0 is bottom-left, video is top-left)
-            sb.Append("-vf vflip ");
+            // Apply Orientation / Flip Filter
+            switch (config.flipMode)
+            {
+                case VideoFlipMode.FlipHorizontal:
+                    sb.Append("-vf \"hflip\" ");
+                    break;
+                case VideoFlipMode.FlipVertical:
+                    sb.Append("-vf \"vflip\" ");
+                    break;
+                case VideoFlipMode.Rotate180:
+                    sb.Append("-vf \"vflip,hflip\" ");
+                    break;
+                case VideoFlipMode.None:
+                default:
+                    // No filter (raw buffer)
+                    break;
+            }
 
             // Pixel format for maximum player compatibility (OBS standard: yuv420p)
             sb.Append("-pix_fmt yuv420p ");

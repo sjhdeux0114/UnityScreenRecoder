@@ -395,6 +395,11 @@ namespace HighQualityRecorder.Editor
             (int outW, int outH) = _config.GetTargetResolution((int)gameView.x, (int)gameView.y);
             EditorGUILayout.LabelField("Output Resolution:", $"{outW} x {outH} @ {_config.GetTargetFramerate()} FPS", EditorStyles.miniLabel);
 
+            EditorGUILayout.Space(4);
+            GUILayout.Label("화면 반전 / 회전 (Orientation & Flip)", EditorStyles.boldLabel);
+            string[] flipLabels = { "None (원본)", "Flip Horizontal (좌우)", "Flip Vertical (상하)", "Rotate 180° (둘 다)" };
+            _config.flipMode = (VideoFlipMode)GUILayout.Toolbar((int)_config.flipMode, flipLabels);
+
             EditorGUILayout.EndVertical();
         }
 

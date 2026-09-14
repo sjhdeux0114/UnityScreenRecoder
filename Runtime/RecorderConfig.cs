@@ -71,11 +71,21 @@ namespace HighQualityRecorder
         MOV = 2
     }
 
+    public enum VideoFlipMode
+    {
+        None = 0,             // No flip (Raw buffer)
+        FlipHorizontal = 1,   // Horizontal Flip (hflip)
+        FlipVertical = 2,     // Vertical Flip (vflip)
+        Rotate180 = 3         // Both flips / 180° rotation (vflip, hflip)
+    }
+
     [Serializable]
     public class RecorderConfig
     {
         public EncoderType encoderType = EncoderType.Auto;
         public VideoCodec videoCodec = VideoCodec.H264;
+
+        public VideoFlipMode flipMode = VideoFlipMode.FlipHorizontal; // Corrects inverted orientation
 
         public QualityControlMode qualityControlMode = QualityControlMode.QualityPreset;
         public QualityPreset qualityPreset = QualityPreset.Ultra;
