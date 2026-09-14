@@ -206,7 +206,7 @@ namespace HighQualityRecorder.Editor
         public static Vector2 GetGameViewSize()
         {
             // Try modern Unity 2021+ PlayModeView API
-            Type playModeViewType = typeof(Editor).Assembly.GetType("UnityEditor.PlayModeView");
+            Type playModeViewType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.PlayModeView");
             if (playModeViewType != null)
             {
                 MethodInfo getTargetSizeMethod = playModeViewType.GetMethod(
@@ -224,7 +224,7 @@ namespace HighQualityRecorder.Editor
             }
 
             // Fallback: Reflection on GameView Window
-            Type gameViewType = typeof(Editor).Assembly.GetType("UnityEditor.GameView");
+            Type gameViewType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.GameView");
             if (gameViewType != null)
             {
                 EditorWindow gameView = EditorWindow.GetWindow(gameViewType, false, null, false);
