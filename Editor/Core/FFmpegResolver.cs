@@ -17,9 +17,10 @@ namespace HighQualityRecorder.Editor
         private static readonly HashSet<string> _supportedEncoders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static bool _hasProbedEncoders = false;
 
-        // Windows 64-bit static release link (Gyan.dev official ffmpeg-release-essentials.zip)
-        private const string FFMPEG_DOWNLOAD_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+        // High-speed GitHub CDN links (Essential build is ~35MB lightweight, significantly faster than full 200MB builds)
+        private const string FFMPEG_LIGHT_URL = "https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip";
         private const string FFMPEG_GITHUB_MIRROR = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
+        private const string FFMPEG_FALLBACK_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
 
         public static string GetInstalledFFmpegDir()
         {
@@ -50,7 +51,6 @@ namespace HighQualityRecorder.Editor
                 return projectFFmpeg;
             }
 
-            // Also check direct root of Library/FFmpeg
             projectFFmpeg = Path.Combine(GetInstalledFFmpegDir(), "ffmpeg.exe");
             if (File.Exists(projectFFmpeg))
             {
@@ -66,7 +66,27 @@ namespace HighQualityRecorder.Editor
                 return pathFromWhere;
             }
 
-            // 4. Check typical package directory if installed locally
+            // 4. Check typical WinGet / Scoop / Local paths
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+            string[] commonPaths = new[]
+            {
+                Path.Combine(localAppData, "Microsoft", "WinGet", "Links", "ffmpeg.exe"),
+                Path.Combine(userProfile, "scoop", "shims", "ffmpeg.exe"),
+                @"C:\ProgramData\chocolatey\bin\ffmpeg.exe"
+            };
+
+            foreach (var p in commonPaths)
+            {
+                if (File.Exists(p))
+                {
+                    _cachedPath = p;
+                    return p;
+                }
+            }
+
+            // 5. Check typical package directory if installed locally
             string packageBin = Path.GetFullPath("Packages/com.studio.unityrecorder/Binaries/ffmpeg.exe");
             if (File.Exists(packageBin))
             {
@@ -142,7 +162,6 @@ namespace HighQualityRecorder.Editor
                         string line;
                         while ((line = proc.StandardOutput.ReadLine()) != null)
                         {
-                            // ffmpeg -encoders lines: V..... h264_nvenc ...
                             if (line.Contains("h264_nvenc")) _supportedEncoders.Add("h264_nvenc");
                             if (line.Contains("hevc_nvenc")) _supportedEncoders.Add("hevc_nvenc");
                             if (line.Contains("h264_qsv")) _supportedEncoders.Add("h264_qsv");
@@ -172,6 +191,45 @@ namespace HighQualityRecorder.Editor
             return _supportedEncoders.Contains(encoderName);
         }
 
+        public static async Task<bool> InstallViaWinGetAsync(Action<string> onStatus = null)
+        {
+            onStatus?.Invoke("Installing FFmpeg via Windows WinGet...");
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "winget.exe",
+                    Arguments = "install Gyan.FFmpeg --accept-source-agreements --accept-package-agreements --silent",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using (var proc = Process.Start(psi))
+                {
+                    if (proc != null)
+                    {
+                        await Task.Run(() => proc.WaitForExit(120000));
+                        _cachedPath = null;
+                        _hasProbedEncoders = false;
+
+                        if (IsFFmpegAvailable())
+                        {
+                            ProbeSupportedEncoders();
+                            onStatus?.Invoke("WinGet installation succeeded!");
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[HighQualityRecorder] WinGet install error: {ex.Message}");
+            }
+            return false;
+        }
+
         public static async Task<bool> DownloadAndInstallFFmpegAsync(Action<float, string> onProgress = null)
         {
             string targetDir = GetInstalledFFmpegDir();
@@ -182,76 +240,107 @@ namespace HighQualityRecorder.Editor
 
             string zipPath = Path.Combine(targetDir, "ffmpeg_download.zip");
 
+            // Check if Windows curl.exe is available for hardware socket acceleration
+            bool hasCurl = File.Exists(Path.Combine(Environment.SystemDirectory, "curl.exe"));
+
             try
             {
-                onProgress?.Invoke(0.1f, "Connecting to FFmpeg download server...");
+                string[] urls = new[] { FFMPEG_LIGHT_URL, FFMPEG_GITHUB_MIRROR, FFMPEG_FALLBACK_URL };
+                bool downloadSuccess = false;
 
-                using (var httpClient = new HttpClient())
+                foreach (var downloadUrl in urls)
                 {
-                    httpClient.Timeout = TimeSpan.FromMinutes(5);
+                    onProgress?.Invoke(0.1f, $"Connecting to high-speed CDN ({Path.GetFileName(downloadUrl)})...");
 
-                    string downloadUrl = FFMPEG_DOWNLOAD_URL;
-                    HttpResponseMessage response = null;
-
-                    try
+                    if (hasCurl)
                     {
-                        response = await httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
-                        response.EnsureSuccessStatusCode();
-                    }
-                    catch
-                    {
-                        // Fallback to GitHub Mirror
-                        onProgress?.Invoke(0.15f, "Trying GitHub mirror...");
-                        downloadUrl = FFMPEG_GITHUB_MIRROR;
-                        response = await httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
-                        response.EnsureSuccessStatusCode();
-                    }
-
-                    long totalBytes = response.Content.Headers.ContentLength ?? -1L;
-
-                    using (var contentStream = await response.Content.ReadAsStreamAsync())
-                    using (var fileStream = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true))
-                    {
-                        byte[] buffer = new byte[65536];
-                        long totalRead = 0;
-                        int bytesRead;
-
-                        while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        onProgress?.Invoke(0.2f, "Downloading FFmpeg using accelerated curl socket...");
+                        var psi = new ProcessStartInfo
                         {
-                            await fileStream.WriteAsync(buffer, 0, bytesRead);
-                            totalRead += bytesRead;
-
-                            if (totalBytes > 0)
+                            FileName = "curl.exe",
+                            Arguments = $"-L --retry 3 --connect-timeout 10 -o \"{zipPath}\" \"{downloadUrl}\"",
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        using (var proc = Process.Start(psi))
+                        {
+                            if (proc != null)
                             {
-                                float progress = 0.2f + 0.6f * ((float)totalRead / totalBytes);
-                                float mbRead = totalRead / (1024f * 1024f);
-                                float mbTotal = totalBytes / (1024f * 1024f);
-                                onProgress?.Invoke(progress, $"Downloading FFmpeg: {mbRead:F1}MB / {mbTotal:F1}MB...");
-                            }
-                            else
-                            {
-                                float mbRead = totalRead / (1024f * 1024f);
-                                onProgress?.Invoke(0.5f, $"Downloading FFmpeg: {mbRead:F1}MB...");
+                                await Task.Run(() => proc.WaitForExit(120000));
+                                if (proc.ExitCode == 0 && File.Exists(zipPath) && new FileInfo(zipPath).Length > 1024 * 1024)
+                                {
+                                    downloadSuccess = true;
+                                    break;
+                                }
                             }
                         }
                     }
+
+                    if (!downloadSuccess)
+                    {
+                        // Fallback to optimized C# HttpClient with 512KB buffer
+                        try
+                        {
+                            using (var httpClient = new HttpClient())
+                            {
+                                httpClient.Timeout = TimeSpan.FromMinutes(4);
+                                var response = await httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
+                                response.EnsureSuccessStatusCode();
+
+                                long totalBytes = response.Content.Headers.ContentLength ?? -1L;
+
+                                using (var contentStream = await response.Content.ReadAsStreamAsync())
+                                using (var fileStream = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None, 524288, true))
+                                {
+                                    byte[] buffer = new byte[524288]; // 512KB buffer
+                                    long totalRead = 0;
+                                    int bytesRead;
+
+                                    while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                                    {
+                                        await fileStream.WriteAsync(buffer, 0, bytesRead);
+                                        totalRead += bytesRead;
+
+                                        float progress = totalBytes > 0 ? (0.2f + 0.6f * ((float)totalRead / totalBytes)) : 0.5f;
+                                        float mbRead = totalRead / (1024f * 1024f);
+                                        float mbTotal = totalBytes > 0 ? (totalBytes / (1024f * 1024f)) : 0f;
+                                        onProgress?.Invoke(progress, $"Downloading FFmpeg: {mbRead:F1}MB / {mbTotal:F1}MB...");
+                                    }
+                                }
+                                downloadSuccess = true;
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.LogWarning($"[HighQualityRecorder] Mirror {downloadUrl} failed: {ex.Message}. Trying next...");
+                        }
+                    }
+                }
+
+                if (!downloadSuccess || !File.Exists(zipPath))
+                {
+                    throw new Exception("All high-speed download mirrors failed. Please check your network connection.");
                 }
 
                 onProgress?.Invoke(0.85f, "Extracting FFmpeg binaries...");
 
                 // Extract ffmpeg.exe from zip
-                using (var archive = ZipFile.OpenRead(zipPath))
+                await Task.Run(() =>
                 {
-                    foreach (var entry in archive.Entries)
+                    using (var archive = ZipFile.OpenRead(zipPath))
                     {
-                        if (entry.Name.Equals("ffmpeg.exe", StringComparison.OrdinalIgnoreCase) ||
-                            entry.Name.Equals("ffprobe.exe", StringComparison.OrdinalIgnoreCase))
+                        foreach (var entry in archive.Entries)
                         {
-                            string destFile = Path.Combine(targetDir, entry.Name);
-                            entry.ExtractToFile(destFile, true);
+                            if (entry.Name.Equals("ffmpeg.exe", StringComparison.OrdinalIgnoreCase) ||
+                                entry.Name.Equals("ffprobe.exe", StringComparison.OrdinalIgnoreCase))
+                            {
+                                string destFile = Path.Combine(targetDir, entry.Name);
+                                entry.ExtractToFile(destFile, true);
+                            }
                         }
                     }
-                }
+                });
 
                 // Clean up zip
                 try

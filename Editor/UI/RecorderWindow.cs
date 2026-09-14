@@ -144,10 +144,16 @@ namespace HighQualityRecorder.Editor
                 }
                 else
                 {
-                    if (GUILayout.Button("Download & Setup FFmpeg Automatically", GUILayout.Height(28)))
+                    EditorGUILayout.BeginHorizontal();
+                    if (GUILayout.Button("⚡ High-Speed Auto Download", GUILayout.Height(28)))
                     {
                         StartDownloadFFmpeg();
                     }
+                    if (GUILayout.Button("Install via WinGet (5s)", GUILayout.Height(28), GUILayout.Width(150)))
+                    {
+                        StartWinGetInstall();
+                    }
+                    EditorGUILayout.EndHorizontal();
                 }
             }
 
@@ -160,6 +166,32 @@ namespace HighQualityRecorder.Editor
             GUI.backgroundColor = supported ? new Color(0.3f, 0.8f, 0.3f) : new Color(0.6f, 0.6f, 0.6f);
             GUILayout.Box(label, EditorStyles.miniButton, GUILayout.ExpandWidth(true));
             GUI.backgroundColor = oldColor;
+        }
+
+        private async void StartWinGetInstall()
+        {
+            _isDownloadingFFmpeg = true;
+            _downloadProgress = 0.5f;
+            _downloadStatus = "Installing FFmpeg via Windows WinGet...";
+            Repaint();
+
+            bool success = await FFmpegResolver.InstallViaWinGetAsync(status =>
+            {
+                _downloadStatus = status;
+                Repaint();
+            });
+
+            _isDownloadingFFmpeg = false;
+            Repaint();
+
+            if (success)
+            {
+                EditorUtility.DisplayDialog("FFmpeg Installed", "FFmpeg has been successfully installed via WinGet and is ready to use!", "OK");
+            }
+            else
+            {
+                EditorUtility.DisplayDialog("WinGet Failed", "WinGet installation failed. Please try the 'High-Speed Auto Download' button instead.", "OK");
+            }
         }
 
         private async void StartDownloadFFmpeg()
