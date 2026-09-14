@@ -67,7 +67,7 @@ namespace HighQualityRecorder.Editor
             }
 
             // 4. Check typical package directory if installed locally
-            string packageBin = Path.GetFullPath("Packages/com.studio.unityrecorder/Binaries/ffmpeg.exe");
+            string packageBin = Path.GetFullPath("Packages/com.sjhdeux0114.unityscreenrecorder/Binaries/ffmpeg.exe");
             if (File.Exists(packageBin))
             {
                 _cachedPath = packageBin;

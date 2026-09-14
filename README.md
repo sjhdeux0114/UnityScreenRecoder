@@ -47,7 +47,7 @@
 ```json
 {
   "dependencies": {
-    "com.studio.unityrecorder": "https://github.com/sjhdeux0114/UnityScreenRecoder.git",
+    "com.sjhdeux0114.unityscreenrecorder": "https://github.com/sjhdeux0114/UnityScreenRecoder.git",
     ...
   }
 }
