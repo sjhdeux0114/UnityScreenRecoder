@@ -13,7 +13,7 @@ namespace HighQualityRecorder.Editor
         private float _downloadProgress = 0f;
         private string _downloadStatus = "";
 
-        [MenuItem("Tools/High Quality Screen Recorder %#r", false, 100)]
+        [MenuItem("Tools/High Quality Screen Recorder %#F9", false, 100)]
         public static void Open()
         {
             var window = GetWindow<RecorderWindow>("Screen Recorder");

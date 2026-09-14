@@ -31,7 +31,7 @@
   - 복잡한 FFmpeg 설치 과정 없이 에디터 창의 버튼 한 번으로 자동 다운로드 및 구성
 - **간편한 에디터 인터페이스 & 단축키**:
   - 언제 어디서나 **`F9`** 키로 즉시 녹화 시작/정지 가능
-  - 상단 메뉴 `Tools > High Quality Screen Recorder` (`Ctrl + Shift + R`)
+  - 상단 메뉴 `Tools > High Quality Screen Recorder` (`Ctrl + Shift + F9`)
 
 ---
 
@@ -63,7 +63,7 @@
 ## 빠른 시작 (Quick Start)
 
 1. **녹화 창 열기**:
-   - Unity 상단 메뉴에서 **`Tools > High Quality Screen Recorder`** (단축키: `Ctrl + Shift + R`)를 엽니다.
+   - Unity 상단 메뉴에서 **`Tools > High Quality Screen Recorder`** (단축키: `Ctrl + Shift + F9`)를 엽니다.
 2. **FFmpeg 엔진 상태 확인**:
    - 창 상단에 `Ready` 표시가 되어 있는지 확인합니다.
    - 처음 실행하여 FFmpeg이 없는 경우, **[Download & Setup FFmpeg Automatically]** 버튼을 누르면 자동으로 다운로드되어 즉시 준비됩니다.
@@ -85,7 +85,7 @@
 | 단축키 | 기능 |
 | :--- | :--- |
 | **`F9`** | 녹화 시작 / 정지 토글 (Start / Stop Recording) |
-| **`Ctrl + Shift + R`** | 녹화 설정 창 열기 (Open Recorder Window) |
+| **`Ctrl + Shift + F9`** | 녹화 설정 창 열기 (Open Recorder Window) |
 
 ---
 
