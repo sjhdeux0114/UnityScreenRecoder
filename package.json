@@ -1,5 +1,5 @@
 {
-  "name": "com.sjhdeux0114.unityscreenrecorder",
+  "name": "com.studio.unityrecorder",
   "version": "1.0.0",
   "displayName": "OBS Studio-Grade High Quality Screen Recorder",
   "description": "High-performance, ultra-quality screen and game recorder for Unity Editor powered by FFmpeg and GPU hardware acceleration (NVENC / QuickSync / AMF / x264). Supports 4K/60fps/120fps recording, constant frame-rate mode for zero frame drops, and seamless audio capture.",
