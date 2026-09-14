@@ -86,6 +86,22 @@ namespace HighQualityRecorder.Editor
                 }
             }
 
+            // Also check WinGet Packages directory (e.g. Gyan.FFmpeg)
+            string wingetPackages = Path.Combine(localAppData, "Microsoft", "WinGet", "Packages");
+            if (Directory.Exists(wingetPackages))
+            {
+                try
+                {
+                    string[] found = Directory.GetFiles(wingetPackages, "ffmpeg.exe", SearchOption.AllDirectories);
+                    if (found != null && found.Length > 0 && File.Exists(found[0]))
+                    {
+                        _cachedPath = found[0];
+                        return found[0];
+                    }
+                }
+                catch { }
+            }
+
             // 5. Check typical package directory if installed locally
             string packageBin = Path.GetFullPath("Packages/com.studio.unityrecorder/Binaries/ffmpeg.exe");
             if (File.Exists(packageBin))
