@@ -154,15 +154,35 @@ namespace HighQualityRecorder.Editor
             bool isAmf = encoder.Contains("amf");
             bool isSoftware = encoder.Contains("libx26");
 
-            if (config.qualityPreset == QualityPreset.CustomBitrate)
+            if (config.qualityControlMode == QualityControlMode.TargetBitrate)
             {
-                int mbps = Mathf.Clamp(config.customBitrateMbps, 1, 300);
-                sb.Append($"-b:v {mbps}M -maxrate {mbps * 1.5f:F0}M -bufsize {mbps * 2:F0}M ");
-                if (isNvenc) sb.Append("-preset p6 -tune hq ");
-                else if (isSoftware) sb.Append("-preset veryfast ");
+                // Explicit Bitrate mode (Mbps)
+                int mbps = Mathf.Clamp(config.targetBitrateMbps, 1, 300);
+                int maxRate = Mathf.RoundToInt(mbps * 1.5f);
+                int bufSize = mbps * 2;
+
+                if (isNvenc)
+                {
+                    // NVIDIA NVENC VBR mode with specified bitrate
+                    sb.Append($"-rc vbr -b:v {mbps}M -maxrate {maxRate}M -bufsize {bufSize}M -preset p6 -tune hq ");
+                }
+                else if (isQsv)
+                {
+                    sb.Append($"-b:v {mbps}M -maxrate {maxRate}M -bufsize {bufSize}M -preset veryfast ");
+                }
+                else if (isAmf)
+                {
+                    sb.Append($"-rc vbr_latency -b:v {mbps}M -maxrate {maxRate}M -quality quality ");
+                }
+                else
+                {
+                    // Software libx264 / libx265
+                    sb.Append($"-b:v {mbps}M -maxrate {maxRate}M -bufsize {bufSize}M -preset veryfast ");
+                }
                 return;
             }
 
+            // Quality Preset mode (CQP / CRF)
             int qp = 17; // Default Ultra (OBS High Quality)
             switch (config.qualityPreset)
             {

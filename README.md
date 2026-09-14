@@ -16,6 +16,11 @@
   - NVIDIA NVENC, AMD AMF, Intel QSV 및 CPU libx264 지원
   - CQP 14~17 (무손실급 상수 품질 모드) 및 최대 200Mbps+ 비트레이트 지원으로 압축 노이즈 제거
   - H.264 및 HEVC (H.265) 코덱 지원
+- **화질 제어 모드 (Quality Preset & 초당 Bitrate 지원)**:
+  - **Quality Preset**: CQP 14(Lossless), CQP 17(Ultra), CQP 20(High), CQP 24(Medium)
+  - **Target Bitrate**: 원하는 초당 비트레이트(Mbps, 예: 20~100 Mbps)를 슬라이더 및 프리셋으로 정밀 지정 가능
+- **설정 영구 자동 저장 (Persistent Auto-Save)**:
+  - 창에서 설정을 변경하는 즉시 `UserSettings` 및 `EditorPrefs`에 실시간 자동 저장되어 에디터를 재시작하거나 도메인 리로드 후에도 완벽히 유지
 - **AsyncGPUReadback 기반 제로 스톨(Zero-Stall) 파이프라인**:
   - 기존의 `Texture2D.ReadPixels`로 인한 메인 스레드 멈춤(GPU stall)을 방지하고 백그라운드 스레드로 비동기 스트리밍
 - **완벽 싱크 렌더링 모드 (Constant Framerate / 0% Dropped Frames)**:

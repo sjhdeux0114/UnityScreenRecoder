@@ -13,19 +13,17 @@ namespace HighQualityRecorder.Editor
         private float _downloadProgress = 0f;
         private string _downloadStatus = "";
 
-        private const string PREFS_KEY = "HighQualityRecorder_Config_v1";
-
         [MenuItem("Tools/High Quality Screen Recorder %#r", false, 100)]
         public static void Open()
         {
             var window = GetWindow<RecorderWindow>("Screen Recorder");
-            window.minSize = new Vector2(420, 560);
+            window.minSize = new Vector2(420, 580);
             window.Show();
         }
 
         private void OnEnable()
         {
-            LoadConfig();
+            _config = RecorderSettingsManager.GetSettings();
             EditorApplication.update += OnEditorUpdate;
             RecorderController.OnRecordingStarted += Repaint;
             RecorderController.OnRecordingFinished += OnRecordFinished;
@@ -61,6 +59,11 @@ namespace HighQualityRecorder.Editor
 
         private void OnGUI()
         {
+            if (_config == null)
+            {
+                _config = RecorderSettingsManager.GetSettings();
+            }
+
             _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos);
 
             DrawHeader();
@@ -73,6 +76,10 @@ namespace HighQualityRecorder.Editor
             EditorGUILayout.Space(6);
 
             EditorGUI.BeginDisabledGroup(RecorderController.IsRecording);
+            
+            // Track any change to automatically persist settings immediately
+            EditorGUI.BeginChangeCheck();
+
             DrawEncoderSettingsBox();
             EditorGUILayout.Space(6);
 
@@ -80,6 +87,12 @@ namespace HighQualityRecorder.Editor
             EditorGUILayout.Space(6);
 
             DrawOutputSettingsBox();
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                SaveConfig();
+            }
+
             EditorGUI.EndDisabledGroup();
 
             EditorGUILayout.EndScrollView();
@@ -222,6 +235,7 @@ namespace HighQualityRecorder.Editor
                 GUI.backgroundColor = new Color(0.3f, 0.85f, 0.3f);
                 if (GUILayout.Button("● START RECORDING (F9)", GUILayout.Height(40)))
                 {
+                    SaveConfig();
                     RecorderController.StartRecording(_config);
                 }
                 GUI.backgroundColor = oldColor;
@@ -256,12 +270,57 @@ namespace HighQualityRecorder.Editor
 
             _config.encoderType = (EncoderType)EditorGUILayout.EnumPopup("Hardware Encoder", _config.encoderType);
             _config.videoCodec = (VideoCodec)EditorGUILayout.EnumPopup("Video Codec", _config.videoCodec);
-            _config.qualityPreset = (QualityPreset)EditorGUILayout.EnumPopup("Quality Preset", _config.qualityPreset);
 
-            if (_config.qualityPreset == QualityPreset.CustomBitrate)
+            EditorGUILayout.Space(4);
+            GUILayout.Label("Quality / Bitrate Control", EditorStyles.label);
+
+            // Toggle between Quality Preset (CQP/CRF) and Explicit Bitrate (Mbps)
+            string[] modes = { "Quality Preset (CRF/CQP)", "Target Bitrate (초당 Mbps)" };
+            int currentModeIndex = (int)_config.qualityControlMode;
+            int newModeIndex = GUILayout.Toolbar(currentModeIndex, modes);
+            if (newModeIndex != currentModeIndex)
             {
-                _config.customBitrateMbps = EditorGUILayout.IntSlider("Bitrate (Mbps)", _config.customBitrateMbps, 5, 200);
+                _config.qualityControlMode = (QualityControlMode)newModeIndex;
             }
+
+            EditorGUILayout.Space(2);
+
+            if (_config.qualityControlMode == QualityControlMode.QualityPreset)
+            {
+                _config.qualityPreset = (QualityPreset)EditorGUILayout.EnumPopup("Preset Level", _config.qualityPreset);
+                switch (_config.qualityPreset)
+                {
+                    case QualityPreset.Lossless:
+                        EditorGUILayout.HelpBox("Lossless (CQP 14): Near visually lossless master quality. Highest bitrate, pristine clarity.", MessageType.None);
+                        break;
+                    case QualityPreset.Ultra:
+                        EditorGUILayout.HelpBox("Ultra (CQP 17): OBS Studio recommended high-quality setting. Zero block artifacts.", MessageType.None);
+                        break;
+                    case QualityPreset.High:
+                        EditorGUILayout.HelpBox("High (CQP 20): Balanced quality and file size.", MessageType.None);
+                        break;
+                    case QualityPreset.Medium:
+                        EditorGUILayout.HelpBox("Medium (CQP 24): Compact file size.", MessageType.None);
+                        break;
+                }
+            }
+            else
+            {
+                // Explicit target bitrate
+                _config.targetBitrateMbps = EditorGUILayout.IntSlider("Bitrate (Mbps)", _config.targetBitrateMbps, 2, 200);
+
+                // Quick bitrate presets
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("15 Mbps (HD)", EditorStyles.miniButton)) _config.targetBitrateMbps = 15;
+                if (GUILayout.Button("35 Mbps (FHD)", EditorStyles.miniButton)) _config.targetBitrateMbps = 35;
+                if (GUILayout.Button("60 Mbps (2K/4K)", EditorStyles.miniButton)) _config.targetBitrateMbps = 60;
+                if (GUILayout.Button("100 Mbps (Master)", EditorStyles.miniButton)) _config.targetBitrateMbps = 100;
+                EditorGUILayout.EndHorizontal();
+
+                EditorGUILayout.HelpBox($"Target video bitrate set to {_config.targetBitrateMbps} Mbps (VBR peak: {Mathf.RoundToInt(_config.targetBitrateMbps * 1.5f)} Mbps).", MessageType.None);
+            }
+
+            EditorGUILayout.Space(4);
 
             _config.timingMode = (CaptureTimingMode)EditorGUILayout.EnumPopup("Timing Mode", _config.timingMode);
             if (_config.timingMode == CaptureTimingMode.ConstantFramerate)
@@ -334,29 +393,11 @@ namespace HighQualityRecorder.Editor
             EditorGUILayout.EndVertical();
         }
 
-        private void LoadConfig()
-        {
-            string json = EditorPrefs.GetString(PREFS_KEY, "");
-            if (!string.IsNullOrEmpty(json))
-            {
-                try
-                {
-                    _config = JsonUtility.FromJson<RecorderConfig>(json);
-                }
-                catch { }
-            }
-            if (_config == null)
-            {
-                _config = new RecorderConfig();
-            }
-        }
-
         private void SaveConfig()
         {
             if (_config != null)
             {
-                string json = JsonUtility.ToJson(_config);
-                EditorPrefs.SetString(PREFS_KEY, json);
+                RecorderSettingsManager.SaveSettings(_config);
             }
         }
     }

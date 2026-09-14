@@ -33,23 +33,7 @@ namespace HighQualityRecorder.Editor
             }
             else
             {
-                // Load existing configuration from EditorPrefs or fallback
-                string json = EditorPrefs.GetString("HighQualityRecorder_Config_v1", "");
-                RecorderConfig config = null;
-                if (!string.IsNullOrEmpty(json))
-                {
-                    try
-                    {
-                        config = JsonUtility.FromJson<RecorderConfig>(json);
-                    }
-                    catch { }
-                }
-
-                if (config == null)
-                {
-                    config = new RecorderConfig();
-                }
-
+                RecorderConfig config = RecorderSettingsManager.GetSettings();
                 RecorderController.StartRecording(config);
             }
         }

@@ -18,13 +18,18 @@ namespace HighQualityRecorder
         HEVC = 1 // H.265
     }
 
+    public enum QualityControlMode
+    {
+        QualityPreset = 0, // CQP / CRF (OBS High Quality Constant Rate Factor)
+        TargetBitrate = 1  // Specify explicit bitrate in Mbps (VBR)
+    }
+
     public enum QualityPreset
     {
         Lossless = 0,  // CQP 14 / CRF 14
         Ultra = 1,     // CQP 17 / CRF 17 (OBS High Quality equivalent)
         High = 2,      // CQP 20 / CRF 20 (Balanced)
-        Medium = 3,    // CQP 24 / CRF 24
-        CustomBitrate = 4
+        Medium = 3     // CQP 24 / CRF 24
     }
 
     public enum ResolutionPreset
@@ -71,8 +76,10 @@ namespace HighQualityRecorder
     {
         public EncoderType encoderType = EncoderType.Auto;
         public VideoCodec videoCodec = VideoCodec.H264;
+
+        public QualityControlMode qualityControlMode = QualityControlMode.QualityPreset;
         public QualityPreset qualityPreset = QualityPreset.Ultra;
-        public int customBitrateMbps = 50;
+        public int targetBitrateMbps = 40; // Target bitrate in Mbps (e.g. 10 ~ 200)
 
         public ResolutionPreset resolutionPreset = ResolutionPreset.MatchGameView;
         public int customWidth = 1920;
