@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
@@ -129,78 +130,122 @@ namespace HighQualityRecorder.Editor
             if (_state != RecordingState.Recording) return;
             _state = RecordingState.Finishing;
 
-            Debug.Log("[HighQualityRecorder] Stopping recording and finalizing media...");
+            Debug.Log("[HighQualityRecorder] Stopping recording asynchronously. Editor will remain responsive!");
 
-            // 1. Stop frame capture
-            if (_captureEngine != null)
+            // 1. Immediately unhook render callbacks to stop capturing new frames on main thread
+            var captureEngine = _captureEngine;
+            _captureEngine = null;
+
+            if (captureEngine != null)
             {
-                _captureEngine.Stop();
-                _captureEngine.Dispose();
-                _captureEngine = null;
+                captureEngine.UnhookRenderCallbacks();
             }
 
-            // 2. Restore framerate mode
+            // 2. Restore framerate mode immediately on main thread
             if (_activeConfig != null && _activeConfig.timingMode == CaptureTimingMode.ConstantFramerate)
             {
                 Time.captureFramerate = _prevCaptureFramerate;
             }
 
-            // 3. Stop audio capture
+            // 3. Stop audio capture on main thread
             if (AudioCaptureListener.Instance != null && AudioCaptureListener.Instance.IsCapturing)
             {
                 AudioCaptureListener.Instance.StopCapture();
             }
 
-            // 4. Flush and close FFmpeg video encoder
-            if (_encoderProcess != null)
-            {
-                _encoderProcess.CloseInputAndStop(5000);
-                _encoderProcess.Dispose();
-                _encoderProcess = null;
-            }
+            var encoder = _encoderProcess;
+            _encoderProcess = null;
 
-            // 5. Remux Video and Audio
-            string ffmpegExe = FFmpegResolver.ResolveFFmpegPath(_activeConfig?.customFFmpegPath ?? "");
-            bool success = false;
+            string tempVid = _tempVideoPath;
+            string tempAud = _tempAudioPath;
+            string finalOut = _finalOutputPath;
+            var config = _activeConfig;
 
-            if (File.Exists(_tempVideoPath))
+            // 4. Run heavy finalizing operations (flushing queues, waiting for FFmpeg, Remuxing) in background thread!
+            Task.Run(() =>
             {
-                bool hasAudio = File.Exists(_tempAudioPath);
-                success = FFmpegEncoderProcess.RemuxVideoAndAudio(
-                    ffmpegExe,
-                    _tempVideoPath,
-                    hasAudio ? _tempAudioPath : null,
-                    _finalOutputPath,
-                    _activeConfig?.audioBitrateKbps ?? 320
-                );
-            }
-
-            // Clean up temporary files
-            try
-            {
-                if (File.Exists(_tempVideoPath)) File.Delete(_tempVideoPath);
-                if (File.Exists(_tempAudioPath)) File.Delete(_tempAudioPath);
-                string tempDir = Path.GetDirectoryName(_tempVideoPath);
-                if (Directory.Exists(tempDir) && Directory.GetFiles(tempDir).Length == 0)
+                try
                 {
-                    Directory.Delete(tempDir);
+                    // Flush remaining frames and stop worker
+                    if (captureEngine != null)
+                    {
+                        captureEngine.StopAndFlushWorker();
+                        captureEngine.Dispose();
+                    }
+
+                    // Flush and close FFmpeg video encoder
+                    if (encoder != null)
+                    {
+                        encoder.CloseInputAndStop(10000);
+                        encoder.Dispose();
+                    }
+
+                    // Remux Video and Audio
+                    string ffmpegExe = FFmpegResolver.ResolveFFmpegPath(config?.customFFmpegPath ?? "");
+                    bool success = false;
+
+                    if (File.Exists(tempVid))
+                    {
+                        bool hasAudio = File.Exists(tempAud) && new FileInfo(tempAud).Length > 100;
+                        if (hasAudio)
+                        {
+                            success = FFmpegEncoderProcess.RemuxVideoAndAudio(
+                                ffmpegExe,
+                                tempVid,
+                                tempAud,
+                                finalOut,
+                                config?.audioBitrateKbps ?? 320
+                            );
+                        }
+                        else
+                        {
+                            // If no audio was recorded, move temp to final directly (instantaneous, 0 disk copy)
+                            if (File.Exists(finalOut)) File.Delete(finalOut);
+                            File.Move(tempVid, finalOut);
+                            success = true;
+                        }
+                    }
+
+                    // Clean up temporary files
+                    try
+                    {
+                        if (File.Exists(tempVid)) File.Delete(tempVid);
+                        if (File.Exists(tempAud)) File.Delete(tempAud);
+                        string tempDir = Path.GetDirectoryName(tempVid);
+                        if (Directory.Exists(tempDir) && Directory.GetFiles(tempDir).Length == 0)
+                        {
+                            Directory.Delete(tempDir);
+                        }
+                    }
+                    catch { }
+
+                    // Post results safely back to main thread
+                    EditorApplication.delayCall += () =>
+                    {
+                        _state = RecordingState.Idle;
+                        if (success && File.Exists(finalOut))
+                        {
+                            LastRecordedFile = finalOut;
+                            Debug.Log($"[HighQualityRecorder] Recording saved successfully to: {finalOut}");
+                            OnRecordingFinished?.Invoke(finalOut);
+                        }
+                        else
+                        {
+                            Debug.LogError("[HighQualityRecorder] Failed to generate final output video file.");
+                            OnRecordingFailed?.Invoke("Failed to generate final video file.");
+                        }
+                    };
                 }
-            }
-            catch { }
-
-            _state = RecordingState.Idle;
-
-            if (success && File.Exists(_finalOutputPath))
-            {
-                LastRecordedFile = _finalOutputPath;
-                Debug.Log($"[HighQualityRecorder] Recording saved successfully to: {_finalOutputPath}");
-                OnRecordingFinished?.Invoke(_finalOutputPath);
-            }
-            else
-            {
-                Debug.LogError("[HighQualityRecorder] Failed to generate final output video file.");
-                OnRecordingFailed?.Invoke("Failed to generate final video file.");
-            }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[HighQualityRecorder] Exception during background finalize: {ex.Message}");
+                    EditorApplication.delayCall += () =>
+                    {
+                        _state = RecordingState.Idle;
+                        OnRecordingFailed?.Invoke(ex.Message);
+                    };
+                }
+            });
         }
 
         public static Vector2 GetGameViewSize()

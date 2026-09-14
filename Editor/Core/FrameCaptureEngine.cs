@@ -196,20 +196,13 @@ namespace HighQualityRecorder.Editor
             }
         }
 
-        public void Stop()
+        public void UnhookRenderCallbacks()
         {
             if (!_isCapturing) return;
             _isCapturing = false;
 
             RenderPipelineManager.endCameraRendering -= OnEndCameraRenderingSRP;
             Camera.onPostRender -= OnPostRenderBuiltIn;
-
-            // Wait for pending frames to finish flushing
-            _cts.Cancel();
-            if (_workerThread != null && _workerThread.IsAlive)
-            {
-                _workerThread.Join(2000);
-            }
 
             if (_captureRt != null)
             {
@@ -219,11 +212,28 @@ namespace HighQualityRecorder.Editor
             }
         }
 
+        public void StopAndFlushWorker()
+        {
+            UnhookRenderCallbacks();
+
+            // Signal cancellation and wait for remaining frames to flush
+            _cts.Cancel();
+            if (_workerThread != null && _workerThread.IsAlive)
+            {
+                _workerThread.Join(2000);
+            }
+        }
+
+        public void Stop()
+        {
+            StopAndFlushWorker();
+        }
+
         public void Dispose()
         {
             if (_isDisposed) return;
             _isDisposed = true;
-            Stop();
+            StopAndFlushWorker();
             _cts.Dispose();
             _frameQueue.Dispose();
         }

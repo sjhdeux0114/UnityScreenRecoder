@@ -114,12 +114,6 @@ namespace HighQualityRecorder.Editor
             // Pixel format for maximum player compatibility (OBS standard: yuv420p)
             sb.Append("-pix_fmt yuv420p ");
 
-            // Fast start for MP4 web playback compatibility
-            if (outputPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
-            {
-                sb.Append("-movflags +faststart ");
-            }
-
             // Output path
             sb.Append($"\"{outputPath}\"");
 
