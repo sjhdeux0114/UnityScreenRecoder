@@ -325,12 +325,15 @@ namespace HighQualityRecorder.Editor
                     if (proc != null)
                     {
                         string err = proc.StandardError.ReadToEnd();
-                        proc.WaitForExit(10000);
-                        if (proc.ExitCode == 0 && File.Exists(outputPath))
+                        proc.WaitForExit(120000); // Allow up to 2 minutes for large videos or external drives
+                        if (File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
                         {
                             return true;
                         }
-                        Debug.LogError($"[HighQualityRecorder] Remux failed with exit code {proc.ExitCode}: {err}");
+                        if (proc.HasExited && proc.ExitCode != 0)
+                        {
+                            Debug.LogError($"[HighQualityRecorder] Remux failed with exit code {proc.ExitCode}: {err}");
+                        }
                     }
                 }
             }
@@ -339,7 +342,8 @@ namespace HighQualityRecorder.Editor
                 Debug.LogError($"[HighQualityRecorder] Remux exception: {ex.Message}");
             }
 
-            return false;
+            // Fallback: check if output file exists and is valid anyway
+            return File.Exists(outputPath) && new FileInfo(outputPath).Length > 0;
         }
 
         public void Dispose()

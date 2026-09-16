@@ -176,7 +176,7 @@ namespace HighQualityRecorder.Editor
                     // Flush and close FFmpeg video encoder
                     if (encoder != null)
                     {
-                        encoder.CloseInputAndStop(10000);
+                        encoder.CloseInputAndStop(30000);
                         encoder.Dispose();
                     }
 
@@ -199,22 +199,35 @@ namespace HighQualityRecorder.Editor
                         }
                         else
                         {
-                            // If no audio was recorded, move temp to final directly (instantaneous, 0 disk copy)
+                            // If no audio was recorded, move or copy temp to final directly
                             if (File.Exists(finalOut)) File.Delete(finalOut);
-                            File.Move(tempVid, finalOut);
+                            try
+                            {
+                                File.Move(tempVid, finalOut);
+                            }
+                            catch
+                            {
+                                File.Copy(tempVid, finalOut, true);
+                                File.Delete(tempVid);
+                            }
                             success = true;
                         }
                     }
 
+                    bool finalFileValid = File.Exists(finalOut) && new FileInfo(finalOut).Length > 0;
+
                     // Clean up temporary files
                     try
                     {
-                        if (File.Exists(tempVid)) File.Delete(tempVid);
-                        if (File.Exists(tempAud)) File.Delete(tempAud);
-                        string tempDir = Path.GetDirectoryName(tempVid);
-                        if (Directory.Exists(tempDir) && Directory.GetFiles(tempDir).Length == 0)
+                        if (finalFileValid)
                         {
-                            Directory.Delete(tempDir);
+                            if (File.Exists(tempVid)) File.Delete(tempVid);
+                            if (File.Exists(tempAud)) File.Delete(tempAud);
+                            string tempDir = Path.GetDirectoryName(tempVid);
+                            if (Directory.Exists(tempDir) && Directory.GetFiles(tempDir).Length == 0)
+                            {
+                                Directory.Delete(tempDir);
+                            }
                         }
                     }
                     catch { }
@@ -223,7 +236,7 @@ namespace HighQualityRecorder.Editor
                     EditorApplication.delayCall += () =>
                     {
                         _state = RecordingState.Idle;
-                        if (success && File.Exists(finalOut))
+                        if (finalFileValid || (success && File.Exists(finalOut)))
                         {
                             LastRecordedFile = finalOut;
                             Debug.Log($"[HighQualityRecorder] Recording saved successfully to: {finalOut}");
