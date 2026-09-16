@@ -268,12 +268,14 @@ namespace HighQualityRecorder.Editor
                 }
             }
 
-            // Fallback: Reflection on GameView Window
+            // Fallback: Reflection on existing GameView Window
+            // CRITICAL: Never call EditorWindow.GetWindow here because this is executed inside OnGUI repaints.
+            // GetWindow will forcibly instantiate/dock new windows and steal focus, causing RecorderWindow to disappear!
             Type gameViewType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.GameView");
             if (gameViewType != null)
             {
-                EditorWindow gameView = EditorWindow.GetWindow(gameViewType, false, null, false);
-                if (gameView != null)
+                var existingWindows = Resources.FindObjectsOfTypeAll(gameViewType);
+                if (existingWindows != null && existingWindows.Length > 0 && existingWindows[0] is EditorWindow gameView)
                 {
                     PropertyInfo prop = gameViewType.GetProperty("targetSize", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
                     if (prop != null)
@@ -284,7 +286,10 @@ namespace HighQualityRecorder.Editor
                             return size;
                         }
                     }
-                    return new Vector2(gameView.position.width, gameView.position.height);
+                    if (gameView.position.width > 0 && gameView.position.height > 0)
+                    {
+                        return new Vector2(gameView.position.width, gameView.position.height);
+                    }
                 }
             }
 

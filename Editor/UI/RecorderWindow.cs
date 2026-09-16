@@ -14,16 +14,92 @@ namespace HighQualityRecorder.Editor
         private string _downloadStatus = "";
 
         [MenuItem("Tools/High Quality Screen Recorder %#F9", false, 100)]
+        [MenuItem("Window/Screen Recorder", false, 1000)]
         public static void Open()
         {
-            var window = GetWindow<RecorderWindow>("Screen Recorder");
+            var window = GetWindow<RecorderWindow>(false, "Screen Recorder", true);
             window.minSize = new Vector2(420, 580);
+            EnsureValidPosition(window);
             window.Show();
+            window.Focus();
+        }
+
+        [MenuItem("Tools/Reset Recorder Window Position", false, 102)]
+        public static void ResetPosition()
+        {
+            var window = GetWindow<RecorderWindow>(false, "Screen Recorder", true);
+            window.minSize = new Vector2(420, 580);
+
+            Rect mainRect = GetMainWindowRect();
+            float w = 440;
+            float h = 620;
+            float x = mainRect.width > 0 ? (mainRect.x + (mainRect.width - w) * 0.5f) : 150;
+            float y = mainRect.height > 0 ? (mainRect.y + (mainRect.height - h) * 0.5f) : 150;
+            window.position = new Rect(Mathf.Max(0, x), Mathf.Max(0, y), w, h);
+
+            window.Show();
+            window.Focus();
+            Debug.Log("[HighQualityRecorder] Recorder Window position has been reset to center.");
+        }
+
+        private static Rect GetMainWindowRect()
+        {
+            try
+            {
+                return EditorGUIUtility.GetMainWindowPosition();
+            }
+            catch
+            {
+                return new Rect(0, 0, Screen.currentResolution.width, Screen.currentResolution.height);
+            }
+        }
+
+        private static void EnsureValidPosition(EditorWindow window)
+        {
+            Rect pos = window.position;
+            Rect mainRect = GetMainWindowRect();
+
+            bool isInvalid = false;
+
+            // 1. Invalid or collapsed size
+            if (pos.width < 100 || pos.height < 100)
+            {
+                isInvalid = true;
+            }
+
+            // 2. Windows minimized coordinates (-32000) or extreme offscreen values
+            if (pos.x < -10000 || pos.y < -10000 || pos.x > 30000 || pos.y > 30000)
+            {
+                isInvalid = true;
+            }
+
+            // 3. Completely outside the main editor window
+            if (mainRect.width > 0 && mainRect.height > 0)
+            {
+                bool overlaps = (pos.x + pos.width > mainRect.x + 50) &&
+                                (pos.x < mainRect.x + mainRect.width - 50) &&
+                                (pos.y + pos.height > mainRect.y + 50) &&
+                                (pos.y < mainRect.y + mainRect.height - 50);
+
+                if (!overlaps)
+                {
+                    isInvalid = true;
+                }
+            }
+
+            if (isInvalid)
+            {
+                float w = Mathf.Max(440, window.minSize.x);
+                float h = Mathf.Max(620, window.minSize.y);
+                float x = mainRect.width > 0 ? (mainRect.x + (mainRect.width - w) * 0.5f) : 150;
+                float y = mainRect.height > 0 ? (mainRect.y + (mainRect.height - h) * 0.5f) : 150;
+                window.position = new Rect(Mathf.Max(0, x), Mathf.Max(0, y), w, h);
+            }
         }
 
         private void OnEnable()
         {
-            _config = RecorderSettingsManager.GetSettings();
+            _config = RecorderSettingsManager.GetSettings() ?? new RecorderConfig();
             EditorApplication.update += OnEditorUpdate;
             RecorderController.OnRecordingStarted += Repaint;
             RecorderController.OnRecordingFinished += OnRecordFinished;
@@ -61,7 +137,7 @@ namespace HighQualityRecorder.Editor
         {
             if (_config == null)
             {
-                _config = RecorderSettingsManager.GetSettings();
+                _config = RecorderSettingsManager.GetSettings() ?? new RecorderConfig();
             }
 
             _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos);

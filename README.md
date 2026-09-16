@@ -63,7 +63,8 @@
 ## 빠른 시작 (Quick Start)
 
 1. **녹화 창 열기**:
-   - Unity 상단 메뉴에서 **`Tools > High Quality Screen Recorder`** (단축키: `Ctrl + Shift + F9`)를 엽니다.
+   - Unity 상단 메뉴에서 **`Tools > High Quality Screen Recorder`** 또는 **`Window > Screen Recorder`** (단축키: `Ctrl + Shift + F9`)를 엽니다.
+   - *팁: 창이 보이지 않거나 화면 밖으로 나간 경우 `Tools > Reset Recorder Window Position`을 클릭하면 즉시 화면 중앙으로 복원됩니다.*
 2. **FFmpeg 엔진 상태 확인**:
    - 창 상단에 `Ready` 표시가 되어 있는지 확인합니다.
    - 처음 실행하여 FFmpeg이 없는 경우, **[Download & Setup FFmpeg Automatically]** 버튼을 누르면 자동으로 다운로드되어 즉시 준비됩니다.
