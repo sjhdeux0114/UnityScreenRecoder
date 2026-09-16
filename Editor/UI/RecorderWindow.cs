@@ -17,84 +17,143 @@ namespace HighQualityRecorder.Editor
         [MenuItem("Window/Screen Recorder", false, 1000)]
         public static void Open()
         {
-            var window = GetWindow<RecorderWindow>(false, "Screen Recorder", true);
-            window.minSize = new Vector2(420, 580);
-            EnsureValidPosition(window);
-            window.Show();
-            window.Focus();
+            OpenWindow(forceNew: false);
         }
 
         [MenuItem("Tools/Reset Recorder Window Position", false, 102)]
         public static void ResetPosition()
         {
-            var window = GetWindow<RecorderWindow>(false, "Screen Recorder", true);
-            window.minSize = new Vector2(420, 580);
-
-            Rect mainRect = GetMainWindowRect();
-            float w = 440;
-            float h = 620;
-            float x = mainRect.width > 0 ? (mainRect.x + (mainRect.width - w) * 0.5f) : 150;
-            float y = mainRect.height > 0 ? (mainRect.y + (mainRect.height - h) * 0.5f) : 150;
-            window.position = new Rect(Mathf.Max(0, x), Mathf.Max(0, y), w, h);
-
-            window.Show();
-            window.Focus();
-            Debug.Log("[HighQualityRecorder] Recorder Window position has been reset to center.");
+            OpenWindow(forceNew: true);
         }
 
-        private static Rect GetMainWindowRect()
+        public static RecorderWindow OpenWindow(bool forceNew = false)
         {
-            try
+            RecorderWindow window = null;
+
+            if (forceNew)
             {
-                return EditorGUIUtility.GetMainWindowPosition();
-            }
-            catch
-            {
-                return new Rect(0, 0, Screen.currentResolution.width, Screen.currentResolution.height);
-            }
-        }
-
-        private static void EnsureValidPosition(EditorWindow window)
-        {
-            Rect pos = window.position;
-            Rect mainRect = GetMainWindowRect();
-
-            bool isInvalid = false;
-
-            // 1. Invalid or collapsed size
-            if (pos.width < 100 || pos.height < 100)
-            {
-                isInvalid = true;
-            }
-
-            // 2. Windows minimized coordinates (-32000) or extreme offscreen values
-            if (pos.x < -10000 || pos.y < -10000 || pos.x > 30000 || pos.y > 30000)
-            {
-                isInvalid = true;
-            }
-
-            // 3. Completely outside the main editor window
-            if (mainRect.width > 0 && mainRect.height > 0)
-            {
-                bool overlaps = (pos.x + pos.width > mainRect.x + 50) &&
-                                (pos.x < mainRect.x + mainRect.width - 50) &&
-                                (pos.y + pos.height > mainRect.y + 50) &&
-                                (pos.y < mainRect.y + mainRect.height - 50);
-
-                if (!overlaps)
+                // Forcibly destroy any dangling, docked, or corrupted zombie instances
+                var allWindows = Resources.FindObjectsOfTypeAll<RecorderWindow>();
+                foreach (var w in allWindows)
                 {
-                    isInvalid = true;
+                    if (w != null)
+                    {
+                        try { w.Close(); } catch { }
+                        DestroyImmediate(w);
+                    }
+                }
+            }
+            else
+            {
+                var allWindows = Resources.FindObjectsOfTypeAll<RecorderWindow>();
+                if (allWindows != null && allWindows.Length > 0)
+                {
+                    window = allWindows[0];
                 }
             }
 
-            if (isInvalid)
+            if (window == null)
             {
-                float w = Mathf.Max(440, window.minSize.x);
-                float h = Mathf.Max(620, window.minSize.y);
-                float x = mainRect.width > 0 ? (mainRect.x + (mainRect.width - w) * 0.5f) : 150;
-                float y = mainRect.height > 0 ? (mainRect.y + (mainRect.height - h) * 0.5f) : 150;
-                window.position = new Rect(Mathf.Max(0, x), Mathf.Max(0, y), w, h);
+                // Create fresh instance
+                window = CreateInstance<RecorderWindow>();
+                window.titleContent = new GUIContent("Screen Recorder");
             }
+
+            window.minSize = new Vector2(420, 580);
+            window.position = CalculateCenterPosition(440, 620);
+
+            window.Show();
+            window.Focus();
+            window.Repaint();
+
+            EditorPrefs.SetBool("HQRecorder_WasWindowOpen", true);
+            Debug.Log($"[HighQualityRecorder] Recorder Window opened at position {window.position}");
+            return window;
+        }
+
+        private static Rect CalculateCenterPosition(float width, float height)
+        {
+            // Priority 1: Center directly on the active SceneView (where the user is actually working/looking)
+            SceneView targetSceneView = SceneView.lastActiveSceneView;
+            if (targetSceneView == null)
+            {
+                var sceneViews = Resources.FindObjectsOfTypeAll<SceneView>();
+                if (sceneViews != null && sceneViews.Length > 0)
+                {
+                    targetSceneView = sceneViews[0];
+                }
+            }
+
+            if (targetSceneView != null && targetSceneView.position.width > 200 && targetSceneView.position.height > 200)
+            {
+                Rect r = targetSceneView.position;
+                float x = r.x + (r.width - width) * 0.5f;
+                float y = r.y + (r.height - height) * 0.5f;
+                return new Rect(x, y, width, height);
+            }
+
+            // Priority 2: Center on main editor window
+            try
+            {
+                Rect mainRect = EditorGUIUtility.GetMainWindowPosition();
+                if (mainRect.width > 300 && mainRect.height > 300)
+                {
+                    float x = mainRect.x + (mainRect.width - width) * 0.5f;
+                    float y = mainRect.y + (mainRect.height - height) * 0.5f;
+                    return new Rect(x, y, width, height);
+                }
+            }
+            catch { }
+
+            // Priority 3: Fallback coordinates
+            return new Rect(150, 150, width, height);
+        }
+
+        [InitializeOnLoadMethod]
+        private static void InitializePlayModeHandler()
+        {
+            EditorApplication.playModeStateChanged += OnPlayModeChanged;
+        }
+
+        private static void OnPlayModeChanged(PlayModeStateChange state)
+        {
+            if (state == PlayModeStateChange.EnteredEditMode)
+            {
+                bool wasOpen = EditorPrefs.GetBool("HQRecorder_WasWindowOpen", false);
+                if (wasOpen)
+                {
+                    // Delay call to allow Unity to finish restoring layout (.wlt) and rebuilding editor UI
+                    EditorApplication.delayCall += () =>
+                    {
+                        var allWindows = Resources.FindObjectsOfTypeAll<RecorderWindow>();
+                        bool hasValidWindow = false;
+                        if (allWindows != null && allWindows.Length > 0)
+                        {
+                            foreach (var w in allWindows)
+                            {
+                                if (w != null)
+                                {
+                                    hasValidWindow = true;
+                                    w.Show();
+                                    w.Focus();
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!hasValidWindow)
+                        {
+                            OpenWindow(forceNew: true);
+                        }
+                    };
+                }
+            }
+        }
+
+        private void OnDestroy()
+        {
+            // Explicit user close
+            EditorPrefs.SetBool("HQRecorder_WasWindowOpen", false);
         }
 
         private void OnEnable()
