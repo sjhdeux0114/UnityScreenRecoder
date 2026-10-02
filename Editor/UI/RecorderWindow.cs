@@ -532,8 +532,12 @@ namespace HighQualityRecorder.Editor
 
             EditorGUILayout.Space(4);
             GUILayout.Label("화면 반전 / 회전 (Orientation & Flip)", EditorStyles.boldLabel);
-            string[] flipLabels = { "None (원본)", "Flip Horizontal (좌우)", "Flip Vertical (상하)", "Rotate 180° (둘 다)" };
+            string[] flipLabels = { "None (기본/권장)", "Flip Horizontal (좌우)", "Flip Vertical (상하)", "Rotate 180° (둘 다)" };
             _config.flipMode = (VideoFlipMode)GUILayout.Toolbar((int)_config.flipMode, flipLabels);
+            if (_config.flipMode != VideoFlipMode.None)
+            {
+                EditorGUILayout.HelpBox("특수한 그래픽 파이프라인이나 반전이 필요한 경우가 아니라면 'None (기본/권장)'을 권장합니다.", MessageType.None);
+            }
 
             EditorGUILayout.EndVertical();
         }

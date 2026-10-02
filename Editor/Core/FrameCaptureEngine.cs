@@ -11,7 +11,9 @@ namespace HighQualityRecorder.Editor
 {
     /// <summary>
     /// Captures rendered frames from Camera / RenderPipeline using AsyncGPUReadback without GPU stalls.
-    /// Passes captured frame buffers to a dedicated worker thread feeding FFmpeg.
+    /// Utilizes a triple-buffered RenderTexture ring to eliminate GPU write-read race conditions and screen flickering.
+    /// Hooks endFrameRendering for Scriptable Render Pipelines (URP/HDRP) to ensure all camera stacks and UI overlays
+    /// are fully composited before capture with uniform orientation.
     /// </summary>
     public class FrameCaptureEngine : IDisposable
     {
@@ -24,9 +26,13 @@ namespace HighQualityRecorder.Editor
 
         private readonly Stopwatch _stopwatch = new Stopwatch();
         private double _nextCaptureTime = 0;
-        private int _lastCapturedFrameCount = -1;
+        private int _lastCapturedEngineFrame = -1;
 
-        private RenderTexture _captureRt;
+        // Triple-buffered RenderTexture ring to eliminate GPU race conditions (flickering)
+        private const int RING_BUFFER_SIZE = 3;
+        private RenderTexture[] _ringRts;
+        private int _ringIndex = 0;
+
         private Thread _workerThread;
         private readonly BlockingCollection<byte[]> _frameQueue = new BlockingCollection<byte[]>(new ConcurrentQueue<byte[]>(), 30);
         private readonly ConcurrentBag<byte[]> _bufferPool = new ConcurrentBag<byte[]>();
@@ -34,6 +40,7 @@ namespace HighQualityRecorder.Editor
 
         private bool _isCapturing = false;
         private bool _isDisposed = false;
+        private bool _isSRPAvailable = false;
 
         private int _frameByteSize;
         private int _recordedFrames = 0;
@@ -67,22 +74,29 @@ namespace HighQualityRecorder.Editor
 
             _stopwatch.Restart();
             _nextCaptureTime = 0;
-            _lastCapturedFrameCount = -1;
+            _lastCapturedEngineFrame = -1;
 
-            // Create temporary capture render target
-            _captureRt = new RenderTexture(_width, _height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB)
+            // Initialize triple-buffered RenderTexture ring
+            InitializeRingBuffers();
+
+            // Detect Scriptable Render Pipeline (URP / HDRP)
+            _isSRPAvailable = GraphicsSettings.currentRenderPipeline != null || QualitySettings.renderPipeline != null;
+
+            if (_isSRPAvailable)
             {
-                filterMode = FilterMode.Bilinear,
-                wrapMode = TextureWrapMode.Clamp,
-                name = "[HighQualityRecorder_CaptureRT]"
-            };
-            _captureRt.Create();
+                // CRITICAL FOR URP / HDRP:
+                // Hook endFrameRendering rather than endCameraRendering.
+                // endFrameRendering is called ONCE per engine frame after ALL cameras (Base + Overlay stacks, Post-Processing)
+                // and UI passes are completely finished. This completely prevents interleaving, camera fight, and flip flicker.
+                RenderPipelineManager.endFrameRendering += OnEndFrameRenderingSRP;
+            }
+            else
+            {
+                // Hook Built-in Render Pipeline camera completion
+                Camera.onPostRender += OnPostRenderBuiltIn;
+            }
 
-            // Hook render callbacks for both Built-in and Scriptable Render Pipeline (URP/HDRP)
-            RenderPipelineManager.endCameraRendering += OnEndCameraRenderingSRP;
-            Camera.onPostRender += OnPostRenderBuiltIn;
-
-            // Start background worker thread
+            // Start background worker thread feeding FFmpeg
             _workerThread = new Thread(WorkerLoop)
             {
                 Name = "HighQualityRecorder_FFmpegWorker",
@@ -92,42 +106,121 @@ namespace HighQualityRecorder.Editor
             _workerThread.Start();
         }
 
-        private void OnPostRenderBuiltIn(Camera cam)
+        private void InitializeRingBuffers()
         {
-            if (!_isCapturing) return;
-            if (ShouldCaptureCamera(cam) && CheckFrameRateTiming())
+            _ringRts = new RenderTexture[RING_BUFFER_SIZE];
+            for (int i = 0; i < RING_BUFFER_SIZE; i++)
             {
-                CaptureFromActiveTexture(cam.activeTexture);
+                _ringRts[i] = new RenderTexture(_width, _height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB)
+                {
+                    filterMode = FilterMode.Bilinear,
+                    wrapMode = TextureWrapMode.Clamp,
+                    name = $"[HighQualityRecorder_RingRT_{i}]"
+                };
+                _ringRts[i].Create();
+            }
+            _ringIndex = 0;
+        }
+
+        private void ReleaseRingBuffers()
+        {
+            try
+            {
+                // Ensure all in-flight GPU readbacks complete cleanly before destroying textures
+                AsyncGPUReadback.WaitAllRequests();
+            }
+            catch { }
+
+            if (_ringRts != null)
+            {
+                for (int i = 0; i < _ringRts.Length; i++)
+                {
+                    if (_ringRts[i] != null)
+                    {
+                        _ringRts[i].Release();
+                        UnityEngine.Object.DestroyImmediate(_ringRts[i]);
+                        _ringRts[i] = null;
+                    }
+                }
+                _ringRts = null;
             }
         }
 
-        private void OnEndCameraRenderingSRP(ScriptableRenderContext context, Camera cam)
+        private void OnEndFrameRenderingSRP(ScriptableRenderContext context, Camera[] cameras)
         {
             if (!_isCapturing) return;
-            if (ShouldCaptureCamera(cam) && CheckFrameRateTiming())
+            if (cameras == null || cameras.Length == 0) return;
+
+            // Ensure at least one game or main camera was rendered in this frame
+            bool hasValidGameCamera = false;
+            for (int i = 0; i < cameras.Length; i++)
             {
-                CaptureFromActiveTexture(cam.activeTexture);
+                var cam = cameras[i];
+                if (cam != null && (cam.cameraType == CameraType.Game || cam == Camera.main))
+                {
+                    hasValidGameCamera = true;
+                    break;
+                }
             }
+            if (!hasValidGameCamera) return;
+
+            if (CheckFrameRateTiming())
+            {
+                CaptureActiveFrame();
+            }
+        }
+
+        private void OnPostRenderBuiltIn(Camera cam)
+        {
+            if (!_isCapturing) return;
+            if (_isSRPAvailable) return; // Ignore built-in callbacks if SRP is handling capture
+
+            if (ShouldCaptureCameraBuiltIn(cam) && CheckFrameRateTiming())
+            {
+                CaptureActiveFrame();
+            }
+        }
+
+        private bool ShouldCaptureCameraBuiltIn(Camera cam)
+        {
+            if (cam == null) return false;
+            if (cam.cameraType == CameraType.Preview || cam.cameraType == CameraType.Reflection)
+                return false;
+
+            // Priority: Main camera
+            if (Camera.main != null)
+            {
+                return cam == Camera.main;
+            }
+
+            // Fallback: Game camera
+            return cam.cameraType == CameraType.Game;
         }
 
         private bool CheckFrameRateTiming()
         {
-            if (_timingMode == CaptureTimingMode.ConstantFramerate)
+            // CRITICAL: Prevent capturing more than once within the EXACT SAME engine frame.
+            // This guarantees zero duplicate/alternating camera captures even under complex rendering pipelines.
+            int currentEngineFrame = Time.frameCount;
+            if (currentEngineFrame == _lastCapturedEngineFrame)
             {
-                // In Constant Framerate mode: capture exactly once per Unity engine frame
-                if (Time.frameCount == _lastCapturedFrameCount) return false;
-                _lastCapturedFrameCount = Time.frameCount;
-                return true;
-            }
-
-            // In Realtime mode: throttle strictly according to targetFps interval (e.g. 1/30s, 1/60s, 1/120s)
-            double currentTime = _stopwatch.Elapsed.TotalSeconds;
-            if (currentTime < _nextCaptureTime)
-            {
-                // Skip frame: game is running faster than target video framerate!
                 return false;
             }
 
+            if (_timingMode == CaptureTimingMode.ConstantFramerate)
+            {
+                _lastCapturedEngineFrame = currentEngineFrame;
+                return true;
+            }
+
+            // Realtime mode: throttle strictly according to targetFps interval (e.g. 1/30s, 1/60s, 1/120s)
+            double currentTime = _stopwatch.Elapsed.TotalSeconds;
+            if (currentTime < _nextCaptureTime)
+            {
+                return false;
+            }
+
+            _lastCapturedEngineFrame = currentEngineFrame;
             _nextCaptureTime += _frameInterval;
 
             // Prevent runaway catch-up if the engine had a momentary freeze
@@ -139,39 +232,37 @@ namespace HighQualityRecorder.Editor
             return true;
         }
 
-        private bool ShouldCaptureCamera(Camera cam)
+        private void CaptureActiveFrame()
         {
-            if (cam == null) return false;
-            // Ignore preview and reflection cameras
-            if (cam.cameraType == CameraType.Preview || cam.cameraType == CameraType.Reflection)
-                return false;
+            if (!_isCapturing || _ringRts == null || _isDisposed) return;
 
-            // Priority: Main camera
-            if (cam == Camera.main) return true;
+            // Round-robin selection of ring buffer target
+            var targetRt = _ringRts[_ringIndex];
+            _ringIndex = (_ringIndex + 1) % RING_BUFFER_SIZE;
 
-            // If no MainCamera tagged, capture Game camera
-            if (cam.cameraType == CameraType.Game) return true;
-
-            return false;
-        }
-
-        private void CaptureFromActiveTexture(RenderTexture src)
-        {
-            if (!_isCapturing || _captureRt == null) return;
-
-            // Blit current camera output into our capture RenderTexture
-            if (src != null)
+            bool captured = false;
+            try
             {
-                Graphics.Blit(src, _captureRt);
+                // Primary capture method: ScreenCapture.CaptureScreenshotIntoRenderTexture
+                // This captures the fully composed Game View backbuffer with all camera stacks,
+                // post-processing, and screen-space overlay UI, with consistent graphics API orientation (no upside-down flipping).
+                ScreenCapture.CaptureScreenshotIntoRenderTexture(targetRt);
+                captured = true;
             }
-            else
+            catch
             {
-                // Active backbuffer
-                Graphics.Blit(null, _captureRt);
+                // Fallback if ScreenCapture is temporarily unavailable in current editor state
+                captured = false;
+            }
+
+            if (!captured)
+            {
+                // Safe Fallback: Blit from active render texture
+                Graphics.Blit(RenderTexture.active, targetRt);
             }
 
             // Async GPU readback request (Non-blocking!)
-            AsyncGPUReadback.Request(_captureRt, 0, TextureFormat.RGBA32, OnReadbackComplete);
+            AsyncGPUReadback.Request(targetRt, 0, TextureFormat.RGBA32, OnReadbackComplete);
         }
 
         private void OnReadbackComplete(AsyncGPUReadbackRequest request)
@@ -200,11 +291,7 @@ namespace HighQualityRecorder.Editor
             rawData.CopyTo(frameBuffer);
 
             // Enqueue to background worker. If queue is full, drop frame to avoid runaway memory.
-            if (_frameQueue.TryAdd(frameBuffer))
-            {
-                Interlocked.Increment(ref _recordedFrames);
-            }
-            else
+            if (!_frameQueue.TryAdd(frameBuffer))
             {
                 Interlocked.Increment(ref _droppedFrames);
                 _bufferPool.Add(frameBuffer);
@@ -323,15 +410,10 @@ namespace HighQualityRecorder.Editor
             if (!_isCapturing) return;
             _isCapturing = false;
 
-            RenderPipelineManager.endCameraRendering -= OnEndCameraRenderingSRP;
+            RenderPipelineManager.endFrameRendering -= OnEndFrameRenderingSRP;
             Camera.onPostRender -= OnPostRenderBuiltIn;
 
-            if (_captureRt != null)
-            {
-                _captureRt.Release();
-                UnityEngine.Object.DestroyImmediate(_captureRt);
-                _captureRt = null;
-            }
+            ReleaseRingBuffers();
         }
 
         public void StopAndFlushWorker()

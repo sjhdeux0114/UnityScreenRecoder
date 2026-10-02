@@ -48,6 +48,7 @@ namespace HighQualityRecorder.Editor
                         var config = JsonUtility.FromJson<RecorderConfig>(json);
                         if (config != null)
                         {
+                            MigrateConfig(config);
                             _cachedConfig = config;
                             return config;
                         }
@@ -68,6 +69,7 @@ namespace HighQualityRecorder.Editor
                     var config = JsonUtility.FromJson<RecorderConfig>(prefsJson);
                     if (config != null)
                     {
+                        MigrateConfig(config);
                         _cachedConfig = config;
                         return config;
                     }
@@ -78,6 +80,19 @@ namespace HighQualityRecorder.Editor
             // 3. Fallback to default
             _cachedConfig = new RecorderConfig();
             return _cachedConfig;
+        }
+
+        private static void MigrateConfig(RecorderConfig config)
+        {
+            if (config == null) return;
+            if (config.configVersion < 2)
+            {
+                if (config.flipMode == VideoFlipMode.FlipHorizontal)
+                {
+                    config.flipMode = VideoFlipMode.None;
+                }
+                config.configVersion = 2;
+            }
         }
 
         public static void SaveSettings(RecorderConfig config = null)

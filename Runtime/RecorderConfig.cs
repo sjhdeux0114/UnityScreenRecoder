@@ -82,10 +82,12 @@ namespace HighQualityRecorder
     [Serializable]
     public class RecorderConfig
     {
+        public int configVersion = 2;
+
         public EncoderType encoderType = EncoderType.Auto;
         public VideoCodec videoCodec = VideoCodec.H264;
 
-        public VideoFlipMode flipMode = VideoFlipMode.FlipHorizontal; // Corrects inverted orientation
+        public VideoFlipMode flipMode = VideoFlipMode.None; // Default: None (Uniform correct orientation)
 
         public QualityControlMode qualityControlMode = QualityControlMode.QualityPreset;
         public QualityPreset qualityPreset = QualityPreset.Ultra;
